@@ -1,10 +1,28 @@
+/// Punto de entrada de **Smart Eco-Step**.
+///
+/// Responsabilidades de este archivo:
+/// 1. Inicializar Flutter y Firebase antes de dibujar la primera pantalla.
+/// 2. Definir la paleta de colores global [AppColors] ("Ocean Blue Serenity").
+/// 3. Construir el tema oscuro de toda la app ([SmartEcoStepApp]).
+///
+/// Flujo de pantallas:
+/// ```
+/// LoginScreen ──► HomeScreen (tablero DDR + gamificación)
+///      │               ▲
+///      └► RegisterScreen ┘
+/// ```
+library;
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:smart_ecostep/screens/login_screen.dart';
 import 'firebase_options.dart';
 
-// ── Paleta "Ocean Blue Serenity" ─────────────────────────────────────────────
+/// Paleta "Ocean Blue Serenity": fondos azul noche y acentos cyan neón.
+///
+/// Todas las pantallas deben tomar sus colores de aquí para mantener
+/// una estética coherente. No se puede instanciar (constructor privado).
 class AppColors {
   AppColors._();
 
@@ -45,6 +63,10 @@ class AppColors {
   static const Color warning = Color(0xFFFFAB40);
 }
 
+/// Arranca la aplicación.
+///
+/// `ensureInitialized()` es obligatorio porque Firebase usa canales
+/// nativos antes de que se ejecute `runApp`.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -56,11 +78,14 @@ Future<void> main() async {
     ),
   );
 
+  // Configuración generada por `flutterfire configure` (firebase_options.dart)
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   runApp(const SmartEcoStepApp());
 }
 
+/// Widget raíz: configura el [MaterialApp] con el tema oscuro y
+/// abre siempre en [LoginScreen].
 class SmartEcoStepApp extends StatelessWidget {
   const SmartEcoStepApp({super.key});
 
@@ -74,6 +99,11 @@ class SmartEcoStepApp extends StatelessWidget {
     );
   }
 
+  /// Tema Material 3 oscuro basado en [AppColors].
+  ///
+  /// Define el estilo por defecto de AppBar, tarjetas, campos de texto,
+  /// botones, SnackBars y tipografía, para que las pantallas no tengan
+  /// que repetir estilos.
   ThemeData _buildDarkTheme() {
     const cyan = AppColors.cyan;
     const bg = AppColors.background;

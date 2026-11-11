@@ -1,9 +1,19 @@
+/// Pantalla de registro de nuevas cuentas.
+library;
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:smart_ecostep/main.dart';
 import 'package:smart_ecostep/screens/home_screen.dart';
 
+/// Formulario para crear una cuenta (nombre, correo y contraseña).
+///
+/// Al registrarse correctamente:
+/// 1. Crea el usuario en Firebase Authentication.
+/// 2. Guarda el nombre como `displayName` (se usa en el Podio).
+/// 3. Crea el perfil en Realtime Database: `/usuarios/{uid}`.
+/// 4. Abre directamente [HomeScreen].
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -11,6 +21,8 @@ class RegisterScreen extends StatefulWidget {
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
+/// Estado del registro: controladores de los 4 campos, visibilidad de
+/// contraseñas, indicador de carga y animación de entrada (fade).
 class _RegisterScreenState extends State<RegisterScreen>
     with SingleTickerProviderStateMixin {
   // ── Formulario ────────────────────────────────────────────────────────────
@@ -51,6 +63,11 @@ class _RegisterScreenState extends State<RegisterScreen>
   }
 
   // ── Lógica de registro ────────────────────────────────────────────────────
+
+  /// Valida el formulario, crea la cuenta y guarda el perfil del usuario.
+  ///
+  /// Si algo falla, muestra el error traducido con [_mapAuthError] y
+  /// deja al usuario en esta pantalla para corregirlo.
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
@@ -101,6 +118,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     }
   }
 
+  /// Traduce los códigos de error de registro de Firebase a español.
   String _mapAuthError(String code) {
     switch (code) {
       case 'email-already-in-use'  : return 'Ya existe una cuenta con este correo.';
@@ -111,6 +129,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     }
   }
 
+  /// Muestra un SnackBar con ícono rojo ([isError]) o verde (éxito).
   void _showSnackBar(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -303,6 +322,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   // ── Helpers de campos ─────────────────────────────────────────────────────
 
+  /// Campo de texto genérico con ícono a la izquierda (nombre, correo…).
   Widget _buildField({
     required TextEditingController controller,
     required String label,
@@ -326,6 +346,10 @@ class _RegisterScreenState extends State<RegisterScreen>
     );
   }
 
+  /// Campo de contraseña con botón "ojo" para mostrar u ocultar el texto.
+  ///
+  /// [obscure] y [onToggle] los controla el estado, porque hay dos campos
+  /// de contraseña independientes (contraseña y confirmación).
   Widget _buildPasswordField({
     required TextEditingController controller,
     required String label,
@@ -358,6 +382,7 @@ class _RegisterScreenState extends State<RegisterScreen>
 
 // ── Widgets locales ───────────────────────────────────────────────────────────
 
+/// Ícono circular con brillo cyan para el encabezado del formulario.
 class _CyanGlowIcon extends StatelessWidget {
   const _CyanGlowIcon({required this.icon});
   final IconData icon;
@@ -385,6 +410,10 @@ class _CyanGlowIcon extends StatelessWidget {
   }
 }
 
+/// Botón principal de ancho completo con glow neón.
+///
+/// Igual que el botón del login: se apaga si [onPressed] es null y
+/// muestra un spinner con [isLoading].
 class _NeonButtonFull extends StatelessWidget {
   const _NeonButtonFull({
     required this.label,

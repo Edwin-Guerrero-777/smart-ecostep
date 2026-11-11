@@ -1,9 +1,18 @@
+/// Pantalla de inicio de sesión con correo y contraseña (Firebase Auth).
+library;
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:smart_ecostep/main.dart';
 import 'package:smart_ecostep/screens/home_screen.dart';
 import 'package:smart_ecostep/screens/register_screen.dart';
 
+/// Primera pantalla de la app.
+///
+/// - Valida el formulario localmente antes de llamar a Firebase.
+/// - Si el login es correcto, reemplaza toda la pila de navegación por
+///   [HomeScreen] (el botón "atrás" no regresa al login).
+/// - Desde aquí se puede ir a [RegisterScreen] para crear una cuenta.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -11,6 +20,8 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
+/// Estado del login: controladores del formulario, indicador de carga
+/// y la animación de entrada (fade + deslizamiento hacia arriba).
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   // ── Formulario ────────────────────────────────────────────────────────────
@@ -53,6 +64,11 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   // ── Sign-in ───────────────────────────────────────────────────────────────
+
+  /// Valida el formulario e intenta iniciar sesión en Firebase.
+  ///
+  /// Mientras espera, [_isLoading] desactiva el botón y muestra un spinner.
+  /// Los errores de Firebase se traducen a español con [_mapAuthError].
   Future<void> _signIn() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
@@ -77,6 +93,8 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  /// Convierte un código de [FirebaseAuthException] en un mensaje
+  /// entendible para el usuario.
   String _mapAuthError(String code) {
     switch (code) {
       case 'user-not-found'   : return 'No existe una cuenta con ese correo.';
@@ -89,6 +107,7 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  /// Muestra un SnackBar con ícono rojo ([isError]) o verde (éxito).
   void _showSnackBar(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -166,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                           const SizedBox(height: 6),
                           const Text(
-                            'Monitoreo IoT de pasos en tiempo real',
+                            'Genera energía con cada pisada',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color   : AppColors.textSecondary,
@@ -318,7 +337,10 @@ class _NeonIcon extends StatelessWidget {
   }
 }
 
-/// Botón elevado con efecto glow neón
+/// Botón elevado con efecto glow neón.
+///
+/// Si [onPressed] es null (por ejemplo, mientras carga) se desactiva y pierde
+/// el brillo. Con [isLoading] muestra un spinner en lugar del texto.
 class _NeonButton extends StatelessWidget {
   const _NeonButton({
     required this.label,
