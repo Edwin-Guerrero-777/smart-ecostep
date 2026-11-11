@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "786179512077",
+    "firebase_url": "https://smart-ecostep-default-rtdb.firebaseio.com",
+    "project_id": "smart-ecostep",
+    "storage_bucket": "smart-ecostep.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:786179512077:android:13b1dd362af56910430244",
+        "android_client_info": {
+          "package_name": "com.example.smart_ecostep"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDQxhOQ7XPepvUuULXC4-eN8Kd1Ea-TIzM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
