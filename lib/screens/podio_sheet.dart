@@ -24,17 +24,20 @@ class JugadorRanking {
 
 /// Ranking SIMULADO (más adelante se puede leer de Firebase:
 /// usuarios/*/progreso/xp_total ordenado con orderByChild).
+///
+/// Valores pensados para la curva exponencial (1 V = 1 XP): el líder está
+/// en nivel 10 tras miles de pisadas; la mayoría se queda entre 3 y 6.
 const List<JugadorRanking> _rivalesSimulados = [
-  JugadorRanking('NeonStomper', 18450),
-  JugadorRanking('VoltQueen',   15320),
-  JugadorRanking('PiezoKid',    12780),
-  JugadorRanking('AquaDash',     9640),
-  JugadorRanking('EcoPulse',     7210),
-  JugadorRanking('WattWalker',   5480),
-  JugadorRanking('BlueSpark',    3920),
-  JugadorRanking('TidalStep',    2650),
-  JugadorRanking('JouleJumper',  1480),
-  JugadorRanking('OceanBeat',     820),
+  JugadorRanking('NeonStomper', 92400), // nivel 10 · Imposible
+  JugadorRanking('VoltQueen',   41800), // nivel 8  · Leyenda
+  JugadorRanking('PiezoKid',    27300), // nivel 8  · Leyenda
+  JugadorRanking('AquaDash',    15600), // nivel 7  · Leyenda
+  JugadorRanking('EcoPulse',     9800), // nivel 6  · Extremo
+  JugadorRanking('WattWalker',   5200), // nivel 5  · Extremo
+  JugadorRanking('BlueSpark',    2900), // nivel 4  · Difícil
+  JugadorRanking('TidalStep',    1450), // nivel 4  · Difícil
+  JugadorRanking('JouleJumper',   640), // nivel 3  · Difícil
+  JugadorRanking('OceanBeat',     180), // nivel 2  · Normal
 ];
 
 const _oro    = Color(0xFFFFD54F);

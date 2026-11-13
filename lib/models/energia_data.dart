@@ -8,6 +8,13 @@ library;
 /// Voltaje máximo que entrega cada sensor piezoeléctrico (límite del ADC del ESP32).
 const double kVoltajeMaxSensor = 3.3;
 
+/// Número total de sensores piezoeléctricos en el tapete.
+const int kSensoresTapete = 10;
+
+/// Suma máxima posible en una pisada si los 10 sensores dieran 3.3 V (33 V).
+/// En la práctica una pisada genera entre 5 y 25 V.
+const double kVoltajeMaxTapete = kSensoresTapete * kVoltajeMaxSensor;
+
 /// Los 4 carriles del tablero (igual que las 4 flechas del tapete físico).
 ///
 /// El tapete tiene 10 sensores piezoeléctricos repartidos entre las flechas.
@@ -25,11 +32,9 @@ enum Carril {
   /// Nombre legible
   final String nombre;
 
-  /// Sensores piezoeléctricos bajo esta flecha
+  /// Sensores piezoeléctricos bajo esta flecha (los que reciben el impacto
+  /// directo; el resto del tapete también aporta algo por la vibración)
   final int sensores;
-
-  /// Suma máxima posible de voltaje en una pisada sobre esta flecha
-  double get voltajeMaximo => sensores * kVoltajeMaxSensor;
 
   /// Convierte el texto que llega de Firebase en un [Carril].
   /// Devuelve null si el valor no corresponde a ninguna flecha.
@@ -126,8 +131,8 @@ class Pisada {
   /// Flecha del tapete que se pisó
   final Carril carril;
 
-  /// Suma de los voltajes de los sensores de la flecha en este impacto (V).
-  /// Máximo: carril.sensores × 3.3 V.
+  /// Suma de los voltajes de los 10 sensores en este impacto (V).
+  /// Típico: 5–25 V. Máximo físico: [kVoltajeMaxTapete] (33 V).
   final double voltaje;
 
   /// Energía generada por esta pisada (J)

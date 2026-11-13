@@ -246,7 +246,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     // Voltaje → XP (conversión directa). Se suma en Firebase y la barra
     // reacciona cuando el nuevo total vuelve por xpStream.
-    final xp = Progresion.xpDePisada(p.voltaje, p.carril);
+    final xp = Progresion.xpDePisada(p.voltaje);
     if (xp > 0) DatabaseService.instance.sumarXp(xp).catchError((_) {});
 
     final cal = _ddr.registrarPisada(p.carril, p.voltaje, xp: xp);
@@ -278,7 +278,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   /// justo cuando la flecha llega a la Zona de Captura (con algo de error
   /// humano y fallos ocasionales), escribiendo en Firebase como el ESP32.
   void _programarPisadaSimulada(FlechaCayendo f) {
-    if (!_simulando || _rnd.nextDouble() > 0.9) return;
+    // El jugador virtual también sufre con la velocidad: falla más
+    // a medida que sube la dificultad.
+    final precision = switch (_ddr.dificultad) {
+      Dificultad.normal    => 0.92,
+      Dificultad.dificil   => 0.87,
+      Dificultad.extremo   => 0.78,
+      Dificultad.leyenda   => 0.70,
+      Dificultad.imposible => 0.60,
+    };
+    if (!_simulando || _rnd.nextDouble() > precision) return;
 
     // Se adelanta ~150 ms para compensar la ida y vuelta a Firebase
     final ms = f.caidaMs - 150 + (_rnd.nextInt(180) - 90);
@@ -294,12 +303,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   /// Firebase exactamente como lo haría el ESP32. Si la escritura falla
   /// (sin internet, reglas de seguridad…), detiene la simulación y avisa.
   Future<void> _enviarPisadaSimulada(Carril carril) async {
-    // Cada sensor de la flecha entrega 0–3.3 V según la fuerza del impacto.
-    // El ESP32 envía la SUMA. Energía ≈ Σ ½·C·Vᵢ² con C ≈ 10 µF por sensor.
-    final fuerza = 0.45 + _rnd.nextDouble() * 0.55; // pisada suave → fuerte
+    // Una pisada excita los 10 piezos a la vez: los de la flecha pisada
+    // reciben el impacto directo (peso 1.0) y el resto vibra (peso 0.7).
+    // La suma objetivo va de 5 V (pisada suave) a 25 V (pisada fuerte).
+    // Cada sensor se limita a 3.3 V. El ESP32 envía la SUMA de los 10.
+    // Energía ≈ Σ ½·C·Vᵢ² con C ≈ 10 µF por sensor.
+    final objetivo = 5.0 + _rnd.nextDouble() * 20.0;
+    const pesoVibracion = 0.7;
+    final pesoTotal = carril.sensores +
+        (kSensoresTapete - carril.sensores) * pesoVibracion;
+
     var voltaje = 0.0, energia = 0.0;
-    for (var i = 0; i < carril.sensores; i++) {
-      final v = (kVoltajeMaxSensor * fuerza * (0.8 + _rnd.nextDouble() * 0.2))
+    for (var i = 0; i < kSensoresTapete; i++) {
+      final peso = i < carril.sensores ? 1.0 : pesoVibracion;
+      final ruido = 0.9 + _rnd.nextDouble() * 0.2; // ±10 % por sensor
+      final v = (objetivo * peso / pesoTotal * ruido)
           .clamp(0.0, kVoltajeMaxSensor);
       voltaje += v;
       energia += 0.5 * 10e-6 * v * v;
@@ -481,6 +499,12 @@ class _BarraXp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final e = Progresion.estado(xpTotal);
+    // Desde Extremo la etiqueta de dificultad se vuelve roja con fuego
+    final extrema    = e.dificultad.esExtrema;
+    final colorDif   = extrema ? AppColors.error : _aqua;
+    final iconoDif   = extrema
+        ? Icons.local_fire_department_rounded
+        : Icons.speed_rounded;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
@@ -543,12 +567,13 @@ class _BarraXp extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.speed_rounded, color: _aqua, size: 13),
+                    Icon(iconoDif, color: colorDif, size: 13),
                     const SizedBox(width: 4),
                     Text(
-                      e.dificultad.nombre.toUpperCase(),
-                      style: const TextStyle(
-                        color: _aqua,
+                      '${e.dificultad.nombre.toUpperCase()} '
+                      '${e.dificultad.multiplicadorVelocidad.toStringAsFixed(1)}×',
+                      style: TextStyle(
+                        color: colorDif,
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 1.2,

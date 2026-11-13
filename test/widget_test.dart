@@ -47,35 +47,60 @@ void main() {
       expect(Carril.values.fold<int>(0, (s, c) => s + c.sensores), 10);
     });
 
-    test('voltaje → XP directo y limitado al máximo físico de la flecha', () {
-      expect(Progresion.xpDePisada(5.0, Carril.izquierda), 50);
-      // Abajo tiene 2 sensores → máximo 6.6 V → 66 XP aunque llegue basura
-      expect(Progresion.xpDePisada(99, Carril.abajo), 66);
-      expect(Progresion.xpDePisada(-3, Carril.abajo), 0);
+    test('voltaje → XP directo (1 V = 1 XP) y limitado a 33 V', () {
+      expect(Progresion.xpDePisada(5.0), 5);
+      expect(Progresion.xpDePisada(24.6), 25);
+      // 10 sensores × 3.3 V = 33 V → 33 XP como máximo aunque llegue basura
+      expect(Progresion.xpDePisada(999), 33);
+      expect(Progresion.xpDePisada(-3), 0);
+    });
+
+    test('curva: niveles 1–2 rápidos y rampa exponencial desde el 3', () {
+      final xp = [for (var n = 1; n <= 10; n++) Progresion.xpParaSubir(n)];
+      // Valores documentados en progresion.dart
+      expect(xp.take(7), [100, 303, 812, 1801, 3604, 6754, 12100]);
+
+      // Cada nivel pide más que el anterior, y la proporción crece desde el 3
+      for (var i = 1; i < xp.length; i++) {
+        expect(xp[i], greaterThan(xp[i - 1]));
+      }
+      expect(xp[3] / xp[2], greaterThan(xp[1] / xp[0] * 0.7));
+      expect(xp[9], greaterThan(xp[0] * 500)); // nivel 10 ≈ 590× el nivel 1
     });
 
     test('nivel y progreso a partir del XP total', () {
       expect(Progresion.estado(0).nivel, 1);
-      expect(Progresion.estado(249).nivel, 1);
-      final e = Progresion.estado(250 + 100); // pasa a nivel 2 con 100 de sobra
+      expect(Progresion.estado(99).nivel, 1);
+      final e = Progresion.estado(250); // 100 para el nivel 1, sobran 150
       expect(e.nivel, 2);
-      expect(e.xpEnNivel, 100);
-      expect(e.xpNecesario, 400);
+      expect(e.xpEnNivel, 150);
+      expect(e.xpNecesario, 303);
+      expect(Progresion.estado(3016).nivel, 5); // acumulado exacto del nivel 5
+      expect(Progresion.estado(81905).nivel, 10);
+      expect(Progresion.estado(81904).nivel, 9);
     });
 
-    test('la dificultad se desbloquea en niveles 3, 5 y 8', () {
+    test('dificultades: casi extrema desde el nivel 5', () {
       expect(Dificultad.paraNivel(2), Dificultad.normal);
       expect(Dificultad.paraNivel(3), Dificultad.dificil);
-      expect(Dificultad.paraNivel(5), Dificultad.experto);
-      expect(Dificultad.paraNivel(12), Dificultad.maestro);
+      expect(Dificultad.paraNivel(5), Dificultad.extremo);
+      expect(Dificultad.paraNivel(7), Dificultad.leyenda);
+      expect(Dificultad.paraNivel(15), Dificultad.imposible);
+
+      expect(Dificultad.extremo.esExtrema, isTrue);
+      expect(Dificultad.dificil.esExtrema, isFalse);
+      // En nivel 5 la flecha cruza el tablero en menos de 1 s (≥ 2.4×)
+      expect(Dificultad.paraNivel(5).caidaMs, lessThan(1000));
+      expect(Dificultad.paraNivel(5).multiplicadorVelocidad,
+          greaterThanOrEqualTo(2.4));
     });
 
     test('las flechas nuevas caen con la velocidad de la dificultad actual', () {
       final ddr = DdrController()
-        ..dificultad = Dificultad.experto
+        ..dificultad = Dificultad.extremo
         ..setGenerando(true)
         ..tick(1000);
-      expect(ddr.flechas.single.caidaMs, Dificultad.experto.caidaMs);
+      expect(ddr.flechas.single.caidaMs, Dificultad.extremo.caidaMs);
     });
   });
 
