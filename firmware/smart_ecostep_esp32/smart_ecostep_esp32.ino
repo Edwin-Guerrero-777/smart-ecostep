@@ -71,7 +71,7 @@ const int   UMBRAL_MIN        = 300;    // Sensibilidad de pisada (general)
 // Umbral por flecha (0–4095). MÁS ALTO = MENOS sensible.
 // Mira en el Monitor Serie los valores "Arr: | Aba: | Izq: | Der:" al
 // pisar y al NO pisar: el umbral debe quedar entre ambos.
-const int   UMBRAL_ARRIBA     = 1000;  // ↑ menos sensible que las demás
+const int   UMBRAL_ARRIBA     = 250;   // ↑ umbral propio de la flecha ARRIBA
 const int   UMBRAL_ABAJO      = UMBRAL_MIN;
 const int   UMBRAL_IZQUIERDA  = UMBRAL_MIN;
 const int   UMBRAL_DERECHA    = UMBRAL_MIN;
