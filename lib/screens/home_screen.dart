@@ -39,7 +39,17 @@ import 'package:smart_ecostep/models/energia_data.dart';
 import 'package:smart_ecostep/screens/login_screen.dart';
 import 'package:smart_ecostep/screens/podio_sheet.dart';
 import 'package:smart_ecostep/services/database_service.dart';
+import 'package:smart_ecostep/services/esp32_local_service.dart';
 import 'package:smart_ecostep/widgets/efectos_neon.dart';
+
+/// De dónde llegan las pisadas y la energía del tapete.
+enum FuenteDatos {
+  /// ESP32 → internet → Firebase → app (requiere internet en ambos lados)
+  nube,
+
+  /// ESP32 → su propia red Wi-Fi → app por WebSocket (sin internet, sin lag)
+  local,
+}
 
 /// Apariencia de cada carril (dentro de la paleta Ocean Blue Serenity).
 ///
@@ -119,10 +129,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // ── Estado del dispositivo ────────────────────────────────────────────────
 
-  /// Último estado de energía recibido de `datos_esp32/{uid}/actual`.
+  /// Fuente actual de pisadas/energía (se cambia desde la AppBar).
+  FuenteDatos _fuente = FuenteDatos.nube;
+
+  /// Cliente WebSocket del ESP32; solo existe mientras se usa el modo Local.
+  Esp32LocalService? _local;
+
+  /// IP del ESP32 en modo Local: 192.168.4.1 (red propia del ESP32) o la
+  /// IP que el router le dio (modo "misma red"; se ve en la LCD).
+  String _hostLocal = kHostEsp32;
+
+  /// Último estado de energía recibido (de Firebase o del ESP32 local).
   EnergiaData _energia = EnergiaData.vacia();
 
-  /// true en cuanto Firebase entrega la primera lectura.
+  /// Última pisada que SÍ contó (coincidió con una flecha). El "Voltaje
+  /// actual" del dashboard muestra esta, no las pisadas sin flecha.
+  Pisada? _pisadaValida;
+
+  /// true en cuanto la fuente entrega la primera lectura.
   bool _dbConectada = false;
 
   // Firebase emite el valor guardado al suscribirse: ese no es una pisada nueva
@@ -153,17 +177,114 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     _ddr.onFlechaGenerada = _programarPisadaSimulada;
 
-    final db = DatabaseService.instance;
-    _energiaSub = db.energiaStream.listen((e) {
+    _suscribirFuente();
+    // El XP siempre vive en Firebase (sin internet, Firebase lo guarda en
+    // el dispositivo y lo sincroniza cuando vuelve la conexión).
+    _xpSub = DatabaseService.instance.xpStream.listen(_onXp);
+  }
+
+  /// Se suscribe a la energía y a las pisadas de la fuente actual
+  /// (Firebase o ESP32 local). Ambas exponen los mismos streams.
+  void _suscribirFuente() {
+    _energiaSub?.cancel();
+    _pisadaSub?.cancel();
+    _ultimoIdPisada = null;
+
+    final Stream<EnergiaData> energia;
+    final Stream<Pisada?> pisadas;
+    if (_fuente == FuenteDatos.local) {
+      final local = _local ??= Esp32LocalService(host: _hostLocal);
+      local.iniciar();
+      energia = local.energiaStream;
+      pisadas = local.pisadaStream;
+      // El ESP32 no manda "pisadas viejas": todo lo que llega es nuevo
+      _primeraPisadaLeida = true;
+    } else {
+      _local?.detener();
+      energia = DatabaseService.instance.energiaStream;
+      pisadas = DatabaseService.instance.pisadaStream;
+      _primeraPisadaLeida = false;
+    }
+
+    _energiaSub = energia.listen((e) {
       setState(() {
         _energia = e;
         _dbConectada = true;
       });
       _actualizarGeneracion();
     }, onError: (_) => setState(() => _dbConectada = false));
-    _pisadaSub = db.pisadaStream.listen(_onPisada);
-    _xpSub = db.xpStream.listen(_onXp);
+    _pisadaSub = pisadas.listen(_onPisada);
   }
+
+  /// Atiende la opción elegida en el menú ☁/📡 de la AppBar.
+  Future<void> _elegirOpcion(OpcionFuente opcion) async {
+    switch (opcion) {
+      case OpcionFuente.nube:
+        _cambiarFuente(FuenteDatos.nube);
+      case OpcionFuente.redPropia:
+        _cambiarFuente(FuenteDatos.local, host: kHostEsp32);
+      case OpcionFuente.mismaRed:
+        final ip = await _pedirIp();
+        if (ip != null) _cambiarFuente(FuenteDatos.local, host: ip);
+    }
+  }
+
+  /// Diálogo para escribir la IP que el ESP32 muestra en su LCD.
+  Future<String?> _pedirIp() => showDialog<String>(
+    context: context,
+    builder: (_) => _DialogoIp(
+      inicial: _hostLocal == kHostEsp32 ? '' : _hostLocal,
+    ),
+  );
+
+  /// Cambia entre Nube y Local (y, en Local, a qué IP conectarse).
+  /// Detiene la simulación para no mezclar datos.
+  void _cambiarFuente(FuenteDatos nueva, {String? host}) {
+    final nuevoHost = host ?? _hostLocal;
+    final mismoDestino = nueva == _fuente &&
+        (nueva == FuenteDatos.nube || nuevoHost == _hostLocal);
+    if (mismoDestino) return;
+    if (_simulando) _toggleSimulacion();
+
+    // Otra IP: se descarta el cliente anterior y se crea uno nuevo.
+    // El viejo se libera DESPUÉS del siguiente frame: el aviso de la
+    // pantalla todavía lo está escuchando en este momento.
+    if (nuevoHost != _hostLocal) {
+      _energiaSub?.cancel();
+      _pisadaSub?.cancel();
+      final viejo = _local;
+      viejo?.detener();
+      WidgetsBinding.instance.addPostFrameCallback((_) => viejo?.dispose());
+      _local = null;
+      _hostLocal = nuevoHost;
+    }
+
+    setState(() {
+      _fuente = nueva;
+      _energia = EnergiaData.vacia();
+      _pisadaValida = null;
+      _dbConectada = false;
+    });
+    _suscribirFuente();
+    _actualizarGeneracion();
+    _snack(
+      nueva == FuenteDatos.nube
+          ? '☁️ Modo Nube: datos vía Firebase'
+          : _hostLocal == kHostEsp32
+          ? '📡 Modo Local: conecta este dispositivo a la red "SmartEcoStep"'
+          : '📡 Modo Local: conectando a ws://$_hostLocal:$kPuertoEsp32',
+    );
+  }
+
+  /// Lo que muestra el dashboard: la energía total viene de la fuente, pero
+  /// el voltaje y la potencia son los de la última pisada que SÍ contó.
+  EnergiaData get _energiaMostrada => EnergiaData(
+    voltaje: _pisadaValida?.voltaje ?? 0,
+    energiaTotalJ: _energia.energiaTotalJ,
+    potenciaW: (_pisadaValida?.energiaJ ?? 0) / 0.05,
+    activo: _energia.activo,
+    timestamp: _energia.timestamp,
+  );
 
   /// Libera todo: timers, reloj, suscripciones y animaciones.
   /// Sin esto seguirían llegando eventos de Firebase a una pantalla cerrada.
@@ -174,6 +295,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _energiaSub?.cancel();
     _pisadaSub?.cancel();
     _xpSub?.cancel();
+    _local?.dispose();
     _celebracion.dispose();
     _toast.dispose();
     _ddr.dispose();
@@ -244,12 +366,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (p == null || p.id == _ultimoIdPisada) return;
     _ultimoIdPisada = p.id;
 
+    final xp = Progresion.xpDePisada(p.voltaje);
+    final cal = _ddr.registrarPisada(p.carril, p.voltaje, xp: xp);
+
+    // Pisada sin flecha en la Zona de Captura: no cuenta (ni XP ni voltaje)
+    if (cal == Calificacion.libre) return;
+
+    setState(() => _pisadaValida = p);
+
     // Voltaje → XP (conversión directa). Se suma en Firebase y la barra
     // reacciona cuando el nuevo total vuelve por xpStream.
-    final xp = Progresion.xpDePisada(p.voltaje);
     if (xp > 0) DatabaseService.instance.sumarXp(xp).catchError((_) {});
 
-    final cal = _ddr.registrarPisada(p.carril, p.voltaje, xp: xp);
     if (cal == Calificacion.perfecto) {
       HapticFeedback.mediumImpact();
     } else {
@@ -268,7 +396,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _snack('🎮 Simulación DDR activada');
     } else {
       _cancelarTimers();
-      DatabaseService.instance.marcarInactivo().catchError((_) {});
+      if (_fuente == FuenteDatos.nube) {
+        DatabaseService.instance.marcarInactivo().catchError((_) {});
+      }
       _snack('⏹ Simulación detenida');
     }
     _actualizarGeneracion();
@@ -289,8 +419,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     };
     if (!_simulando || _rnd.nextDouble() > precision) return;
 
-    // Se adelanta ~150 ms para compensar la ida y vuelta a Firebase
-    final ms = f.caidaMs - 150 + (_rnd.nextInt(180) - 90);
+    // En Nube se adelanta ~150 ms para compensar la ida y vuelta a
+    // Firebase; en Local la pisada se procesa al instante.
+    final adelanto = _fuente == FuenteDatos.nube ? 150 : 0;
+    final ms = f.caidaMs - adelanto + (_rnd.nextInt(180) - 90);
     late final Timer t;
     t = Timer(Duration(milliseconds: ms.round()), () {
       _timersSim.remove(t);
@@ -322,15 +454,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       voltaje += v;
       energia += 0.5 * 10e-6 * v * v;
     }
-    try {
-      await DatabaseService.instance.registrarPisada(
-        Pisada(
-          id: DateTime.now().microsecondsSinceEpoch,
-          carril: carril,
+    final pisada = Pisada(
+      id: DateTime.now().microsecondsSinceEpoch,
+      carril: carril,
+      voltaje: voltaje,
+      energiaJ: energia,
+    );
+
+    // Modo Local: no hay Firebase de por medio; la pisada se procesa aquí
+    // mismo, como si acabara de llegar del ESP32.
+    if (_fuente == FuenteDatos.local) {
+      setState(() {
+        _energia = EnergiaData(
           voltaje: voltaje,
-          energiaJ: energia,
-        ),
-      );
+          energiaTotalJ: _energia.energiaTotalJ + energia,
+          potenciaW: energia / 0.05,
+          activo: _energia.activo,
+          timestamp: DateTime.now(),
+        );
+      });
+      _onPisada(pisada);
+      return;
+    }
+
+    try {
+      await DatabaseService.instance.registrarPisada(pisada);
     } catch (e) {
       if (!mounted) return;
       _cancelarTimers();
@@ -368,8 +516,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _signOut() async {
     if (_simulando) {
       _cancelarTimers();
-      await DatabaseService.instance.marcarInactivo().catchError((_) {});
+      if (_fuente == FuenteDatos.nube) {
+        await DatabaseService.instance.marcarInactivo().catchError((_) {});
+      }
     }
+    _local?.detener();
     await FirebaseAuth.instance.signOut();
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
@@ -387,10 +538,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     // Texto y color de la pastilla de estado de la AppBar
+    final local = _fuente == FuenteDatos.local;
     final (estado, colorEstado) = _simulando
         ? ('SIMULADO', AppColors.warning)
         : _esp32Real
-        ? ('ESP32 EN LÍNEA', AppColors.success)
+        ? (local ? 'ESP32 LOCAL' : 'ESP32 EN LÍNEA', AppColors.success)
+        : local
+        ? ('BUSCANDO ESP32…', AppColors.warning)
         : _dbConectada
         ? ('EN ESPERA', AppColors.textSecondary)
         : ('CONECTANDO…', AppColors.warning);
@@ -406,6 +560,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
         actions: [
           _EstadoPill(texto: estado, color: colorEstado),
+          _SelectorFuente(
+            fuente: _fuente,
+            hostLocal: _hostLocal,
+            onElegir: _elegirOpcion,
+          ),
           IconButton(
             icon: const Icon(Icons.power_settings_new_rounded),
             tooltip: 'Cerrar sesión',
@@ -439,8 +598,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   const SizedBox(height: 10),
 
                   // ── Dashboard superior: SOLO métricas de energía ─────────
-                  _MetricasEnergia(energia: _energia, ddr: _ddr),
+                  _MetricasEnergia(energia: _energiaMostrada, ddr: _ddr),
                   const SizedBox(height: 14),
+
+                  // ── Diagnóstico del modo Local (solo si no conecta) ──────
+                  if (local &&
+                      _local != null &&
+                      !_energia.activo &&
+                      !_simulando)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _AvisoLocal(servicio: _local!),
+                    ),
 
                   // ── Tablero DDR ──────────────────────────────────────────
                   Expanded(child: _TableroDdr(ddr: _ddr)),
@@ -476,6 +645,211 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SELECTOR NUBE / LOCAL Y DIAGNÓSTICO
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Opciones del menú de conexión (coinciden con MODO_LOCAL del firmware).
+enum OpcionFuente {
+  /// MODO_LOCAL 0: vía Firebase
+  nube,
+
+  /// MODO_LOCAL 1: red "SmartEcoStep" creada por el ESP32 (192.168.4.1)
+  redPropia,
+
+  /// MODO_LOCAL 2: ESP32 y app en la misma red Wi-Fi (IP de la LCD)
+  mismaRed,
+}
+
+/// Botón de la AppBar para elegir de dónde llegan los datos del tapete.
+/// El ícono muestra el modo actual: ☁ Nube o 📡 Local.
+class _SelectorFuente extends StatelessWidget {
+  const _SelectorFuente({
+    required this.fuente,
+    required this.hostLocal,
+    required this.onElegir,
+  });
+  final FuenteDatos fuente;
+  final String hostLocal;
+  final ValueChanged<OpcionFuente> onElegir;
+
+  @override
+  Widget build(BuildContext context) {
+    final actual = fuente == FuenteDatos.nube
+        ? OpcionFuente.nube
+        : hostLocal == kHostEsp32
+        ? OpcionFuente.redPropia
+        : OpcionFuente.mismaRed;
+
+    return PopupMenuButton<OpcionFuente>(
+      tooltip: 'Conexión con el tapete',
+      initialValue: actual,
+      onSelected: onElegir,
+      color: AppColors.cardElevated,
+      icon: Icon(
+        fuente == FuenteDatos.local ? Icons.router_rounded : Icons.cloud_rounded,
+        color: AppColors.cyan,
+      ),
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: OpcionFuente.nube,
+          child: ListTile(
+            leading: Icon(Icons.cloud_rounded, color: AppColors.cyan),
+            title: Text('Nube (Firebase)'),
+            subtitle: Text('Firmware en MODO_LOCAL 0'),
+          ),
+        ),
+        const PopupMenuItem(
+          value: OpcionFuente.redPropia,
+          child: ListTile(
+            leading: Icon(Icons.router_rounded, color: AppColors.cyan),
+            title: Text('Local · red del ESP32'),
+            subtitle: Text('Red "SmartEcoStep" · MODO_LOCAL 1'),
+          ),
+        ),
+        PopupMenuItem(
+          value: OpcionFuente.mismaRed,
+          child: ListTile(
+            leading: const Icon(Icons.lan_rounded, color: AppColors.cyan),
+            title: const Text('Local · misma red Wi-Fi'),
+            subtitle: Text(
+              actual == OpcionFuente.mismaRed
+                  ? 'IP $hostLocal · tocar para cambiar'
+                  : 'Escribe la IP de la LCD · MODO_LOCAL 2',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Diálogo para escribir la IP del ESP32 (modo "misma red").
+///
+/// Es un StatefulWidget para que el controlador del campo de texto se
+/// libere en su `dispose()`, cuando el diálogo ya terminó de cerrarse
+/// (liberarlo antes rompe la animación de cierre).
+class _DialogoIp extends StatefulWidget {
+  const _DialogoIp({required this.inicial});
+  final String inicial;
+
+  @override
+  State<_DialogoIp> createState() => _DialogoIpState();
+}
+
+class _DialogoIpState extends State<_DialogoIp> {
+  late final TextEditingController _ctrl = TextEditingController(
+    text: widget.inicial,
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _aceptar() {
+    final t = _ctrl.text.trim();
+    if (!esIpValida(t)) {
+      setState(() => _error = 'Escribe una IP como 172.20.10.5');
+      return;
+    }
+    Navigator.pop(context, t);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      title: const Text('IP del ESP32'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Aparece en la pantalla LCD del tapete ("IP:...") y en el '
+            'Monitor Serie. Este dispositivo y el ESP32 deben estar en '
+            'la misma red Wi-Fi.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onSubmitted: (_) => _aceptar(),
+            decoration: InputDecoration(
+              labelText: 'IP',
+              hintText: '172.20.10.5',
+              prefixIcon: const Icon(Icons.lan_rounded),
+              errorText: _error,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        TextButton(onPressed: _aceptar, child: const Text('Conectar')),
+      ],
+    );
+  }
+}
+
+/// Aviso de diagnóstico del modo Local: dice a qué dirección se está
+/// intentando conectar y, si falla, por qué (traducido a algo accionable).
+class _AvisoLocal extends StatelessWidget {
+  const _AvisoLocal({required this.servicio});
+  final Esp32LocalService servicio;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String?>(
+      valueListenable: servicio.ultimoError,
+      builder: (context, error, _) {
+        final color = error == null ? AppColors.cyan : AppColors.warning;
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withAlpha(18),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withAlpha(90)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: error == null
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.cyan,
+                        ),
+                      )
+                    : Icon(Icons.wifi_off_rounded, color: color, size: 16),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  error ?? 'Buscando ESP32 en ${servicio.uri}…',
+                  style: TextStyle(color: color, fontSize: 11, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -1060,14 +1434,19 @@ class _TableroDdr extends StatelessWidget {
     for (final t in ddr.textos) {
       final v = ddr.vidaTexto(t);
       final sube = Curves.easeOut.transform(v) * 90;
-      final color = t.bonus ? t.carril.color : AppColors.textPrimary;
+      final color = t.ignorada
+          ? AppColors.textSecondary
+          : t.bonus
+          ? t.carril.color
+          : AppColors.textPrimary;
       hijos.add(
         Positioned(
           left: anchoCarril * t.carril.index - 10,
           width: anchoCarril + 20,
           top: capturaY - tam / 2 - 46 - sube,
           child: Opacity(
-            opacity: (1 - v * v).clamp(0.0, 1.0),
+            // "Sin flecha" se ve tenue: la pisada no contó
+            opacity: (1 - v * v).clamp(0.0, 1.0) * (t.ignorada ? 0.55 : 1.0),
             child: Transform.scale(
               scale: v < 0.15 ? 0.7 + 2 * v : 1.0, // "pop" inicial
               child: Column(

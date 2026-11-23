@@ -1,3 +1,6 @@
+# Credenciales del firmware del ESP32 (Wi-Fi y contraseña de la app)
+firmware/**/config.h
+
 # Miscellaneous
 *.class
 *.log

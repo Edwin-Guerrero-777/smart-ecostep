@@ -1,5 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Red: Firebase (modo Nube) y WebSocket con el ESP32 (modo Local) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Modo Local: encontrar la red Wi-Fi del ESP32 (ver MainActivity.kt) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- usesCleartextTraffic: el WebSocket local (ws://192.168.4.1) no es HTTPS -->
     <application
+        android:usesCleartextTraffic="true"
         android:label="smart_ecostep"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

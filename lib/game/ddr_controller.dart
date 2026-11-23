@@ -51,6 +51,7 @@ class TextoFlotante {
     required this.detalle,
     required this.inicioMs,
     required this.bonus,
+    this.ignorada = false,
   });
   /// Carril sobre el que aparece
   final Carril carril;
@@ -63,6 +64,9 @@ class TextoFlotante {
 
   /// true si la pisada coincidió con una flecha (texto más llamativo)
   final bool bonus;
+
+  /// true si la pisada no contó (no había flecha): se dibuja gris y tenue
+  final bool ignorada;
 }
 
 /// Qué tan a tiempo fue una pisada respecto a las flechas.
@@ -73,7 +77,8 @@ enum Calificacion {
   /// Dentro de ±400 ms de la llegada de una flecha
   bien,
 
-  /// No había ninguna flecha cerca (la energía cuenta igual)
+  /// No había ninguna flecha en la Zona de Captura: la pisada NO cuenta
+  /// (sin XP, sin voltaje, sin combo)
   libre,
 }
 
@@ -191,8 +196,11 @@ class DdrController extends ChangeNotifier {
   /// Registra una pisada (real o simulada) en el carril indicado.
   ///
   /// Busca la flecha de ese carril más cercana a la Zona de Captura y la
-  /// califica según la distancia en tiempo. Si acierta, la flecha desaparece.
-  /// Siempre: hace destellar el carril, suma combo y crea un texto flotante.
+  /// califica según la distancia en tiempo.
+  /// - Si acierta (PERFECTO/BIEN): la flecha desaparece, el carril destella,
+  ///   suma combo y crea el texto flotante.
+  /// - Si no había flecha (libre): NO cuenta; solo un "Sin flecha" gris.
+  ///   Quien llama debe usar el resultado para no dar XP ni mostrar voltaje.
   ///
   /// [voltaje] y [xp] solo se usan para el texto flotante.
   Calificacion registrarPisada(Carril carril, double voltaje, {int xp = 0}) {
@@ -216,8 +224,23 @@ class DdrController extends ChangeNotifier {
     } else {
       cal = Calificacion.libre;
     }
-    if (cal != Calificacion.libre) flechas.remove(mejor);
+    // Pisada sin flecha en la Zona de Captura: NO cuenta (sin destello,
+    // sin combo, sin XP). Solo un aviso gris tenue para saber que el
+    // tapete sí la detectó.
+    if (cal == Calificacion.libre) {
+      textos.add(TextoFlotante(
+        carril  : carril,
+        inicioMs: _now,
+        bonus   : false,
+        ignorada: true,
+        titulo  : 'Sin flecha',
+        detalle : '',
+      ));
+      notifyListeners();
+      return cal;
+    }
 
+    flechas.remove(mejor);
     _destelloHasta[carril] = _now + destelloMs;
 
     combo++;
@@ -229,13 +252,11 @@ class DdrController extends ChangeNotifier {
     textos.add(TextoFlotante(
       carril  : carril,
       inicioMs: _now,
-      bonus   : cal != Calificacion.libre,
-      titulo  : cal == Calificacion.libre ? '+ Voltaje!' : '+ Energía',
-      detalle : switch (cal) {
-        Calificacion.perfecto => '¡PERFECTO! $extra',
-        Calificacion.bien     => '¡BIEN! $extra',
-        Calificacion.libre    => extra,
-      },
+      bonus   : true,
+      titulo  : cal == Calificacion.perfecto ? '+ Energía' : '+ Voltaje!',
+      detalle : cal == Calificacion.perfecto
+          ? '¡PERFECTO! $extra'
+          : '¡BIEN! $extra',
     ));
 
     notifyListeners();

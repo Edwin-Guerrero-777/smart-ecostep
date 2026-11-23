@@ -4,16 +4,38 @@ import 'package:smart_ecostep/game/progresion.dart';
 import 'package:smart_ecostep/models/energia_data.dart';
 
 void main() {
+  /// Genera UNA flecha y avanza el reloj hasta que llega a la Zona de Captura.
+  FlechaCayendo flechaEnZona(DdrController ddr, double desdeMs) {
+    ddr
+      ..setGenerando(true)
+      ..tick(desdeMs + 300); // la 1ª flecha sale 250 ms tras activarse
+    final f = ddr.flechas.last;
+    ddr
+      ..setGenerando(false)
+      ..tick(f.llegadaMs);
+    return f;
+  }
+
   group('DdrController', () {
-    test('pisada sin flecha cercana = "+ Voltaje!" y suma combo', () {
+    test('pisada SIN flecha no cuenta: sin combo, sin destello, "Sin flecha"', () {
       final ddr = DdrController()..tick(0);
-      final cal = ddr.registrarPisada(Carril.arriba, 12);
+      final cal = ddr.registrarPisada(Carril.arriba, 12, xp: 12);
 
       expect(cal, Calificacion.libre);
-      expect(ddr.combo, 1);
-      expect(ddr.textos.single.titulo, '+ Voltaje!');
-      expect(ddr.destello(Carril.arriba), greaterThan(0));
-      expect(ddr.destello(Carril.abajo), 0);
+      expect(ddr.combo, 0);
+      expect(ddr.destello(Carril.arriba), 0);
+      expect(ddr.textos.single.titulo, 'Sin flecha');
+      expect(ddr.textos.single.ignorada, isTrue);
+    });
+
+    test('pisar OTRO carril cuando cae una flecha tampoco cuenta', () {
+      final ddr = DdrController();
+      final f = flechaEnZona(ddr, 1000);
+      final otro = Carril.values.firstWhere((c) => c != f.carril);
+
+      expect(ddr.registrarPisada(otro, 10), Calificacion.libre);
+      expect(ddr.flechas, hasLength(1)); // la flecha sigue ahí
+      expect(ddr.combo, 0);
     });
 
     test('pisada a tiempo con una flecha = PERFECTO y la flecha se consume', () {
@@ -31,12 +53,22 @@ void main() {
     });
 
     test('el combo se reinicia tras un tiempo sin pisar', () {
-      final ddr = DdrController()..tick(0);
-      ddr.registrarPisada(Carril.izquierda, 10);
-      ddr.registrarPisada(Carril.derecha, 10);
+      // Dos flechas seguidas (como en el juego real)
+      final ddr = DdrController()..setGenerando(true);
+      var t = 0.0;
+      while (ddr.flechas.length < 2) {
+        ddr.tick(t += 50);
+      }
+      ddr.setGenerando(false);
+      final f1 = ddr.flechas[0], f2 = ddr.flechas[1];
+
+      ddr.tick(f1.llegadaMs);
+      ddr.registrarPisada(f1.carril, 10);
+      ddr.tick(f2.llegadaMs);
+      ddr.registrarPisada(f2.carril, 10);
       expect(ddr.combo, 2);
 
-      ddr.tick(DdrController.comboTimeoutMs + 1);
+      ddr.tick(ddr.now + DdrController.comboTimeoutMs + 1);
       expect(ddr.combo, 0);
       expect(ddr.comboMax, 2);
     });
