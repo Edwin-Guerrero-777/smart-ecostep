@@ -90,14 +90,20 @@ lib/
 ├── widgets/
 │   └── efectos_neon.dart         # Celebración de nivel (partículas) y toast de dificultad
 ├── services/
-│   └── database_service.dart     # Lectura y escritura en Realtime Database (singleton)
+│   ├── database_service.dart     # Lectura y escritura en Realtime Database (singleton)
+│   └── esp32_local_service.dart  # Conexión directa al ESP32 por WebSocket (modo Local)
 └── screens/
     ├── login_screen.dart         # Inicio de sesión
     ├── register_screen.dart      # Registro de cuenta (+ nodo /usuarios/<uid>)
     ├── podio_sheet.dart          # Podio / leaderboard (ranking simulado)
     └── home_screen.dart          # Dashboard de energía + tablero DDR + simulador
 test/
-└── widget_test.dart              # Pruebas del motor DDR y del modelo
+├── widget_test.dart              # Pruebas del motor DDR, la progresión y el modelo
+└── esp32_local_test.dart         # Pruebas de la conexión WebSocket con el ESP32
+firmware/smart_ecostep_esp32/
+├── smart_ecostep_esp32.ino       # Firmware del tapete (Arduino IDE)
+├── config.ejemplo.h              # Configuración de ejemplo (sí se sube a GitHub)
+└── config.h                      # Tu configuración con contraseñas (NO se sube)
 ```
 
 ---
@@ -205,6 +211,45 @@ flutter run
 
 ---
 
+## Firmware del ESP32 (el tapete)
+
+El código de Arduino está en [`firmware/smart_ecostep_esp32/`](firmware/smart_ecostep_esp32/). Placa: **ESP32 con chip USB CH340**.
+
+### 1. Preparar Arduino IDE (una sola vez)
+1. **File → Preferences → Additional boards manager URLs**: pega
+   `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
+2. **Tools → Board → Boards Manager**: busca **esp32** e instala **"esp32 by Espressif Systems"**.
+3. Si al conectar la placa por USB no aparece ningún puerto COM, instala el driver **CH340 (CH341SER)**.
+4. No hace falta instalar librerías extra. `LiquidCrystal` viene con Arduino IDE.
+
+### 2. Cargar el firmware
+1. **File → Open** → `firmware/smart_ecostep_esp32/smart_ecostep_esp32.ino`.
+2. Placa: **ESP32 Dev Module** · Puerto: el COM de la placa.
+3. Pulsa **Subir (→)**. Si se queda en "Connecting…", mantén presionado el botón **BOOT** de la placa.
+4. Abre el **Monitor Serie** a **115200**.
+
+Recién descargado, **funciona sin configurar nada**. Como no existe `config.h`, usa [`config.ejemplo.h`](firmware/smart_ecostep_esp32/config.ejemplo.h), que arranca en **modo 1** (red propia).
+
+### 3. Modos de conexión (`MODO_LOCAL`)
+
+| Modo | Cómo funciona | Qué necesita |
+|:-:|---|---|
+| **1** · Red propia | El ESP32 crea la red **"SmartEcoStep"** (contraseña `ecostep2026`). Conecta la laptop o el celular a esa red y en la app elige 📡 **Local · red del ESP32**. | Nada (es el modo por defecto) |
+| **2** · Misma red | El ESP32 se une a tu Wi-Fi. En la app elige 📡 **Local · misma red Wi-Fi** y escribe la IP que muestra la LCD (`IP:...`). | Tu Wi-Fi de **2.4 GHz** en `config.h` |
+| **0** · Nube | El ESP32 envía todo a Firebase por internet. En la app elige ☁ **Nube**. | Tu Wi-Fi y tu cuenta de la app en `config.h` |
+
+Los modos 1 y 2 usan WebSocket directo: la respuesta es inmediata y funcionan en Chrome y en Android. Algunas redes escolares aíslan a los dispositivos entre sí; ahí el modo 2 no funciona, así que usa un hotspot o el modo 1.
+
+### 4. Usar tus propios datos (modos 0 y 2)
+1. En `firmware/smart_ecostep_esp32/`, **copia** `config.ejemplo.h` y renombra la copia a **`config.h`**.
+2. En `config.h`, cambia `MODO_LOCAL` y llena tu Wi-Fi y, para el modo 0, tu correo y contraseña de la app.
+3. `config.h` está en `.gitignore`, así que **tus contraseñas nunca se suben a GitHub**. No pongas datos reales en `config.ejemplo.h`.
+
+### 5. Ajustar la sensibilidad de las flechas
+Al inicio del `.ino` están `UMBRAL_MIN` y `UMBRAL_ARRIBA`, `UMBRAL_ABAJO`, `UMBRAL_IZQUIERDA` y `UMBRAL_DERECHA`, con valores de 0 a 4095. **Más alto = menos sensible.** En el Monitor Serie se ven las lecturas `Arr: | Aba: | Izq: | Der:`: el umbral debe quedar entre el valor en reposo y el valor al pisar.
+
+---
+
 ## Probar sin hardware: "Simular Interacción DDR"
 
 1. Inicia sesión en la app.
@@ -235,7 +280,8 @@ flutter test
 - [x] **Fase 2 (app)**: dashboard de energía, tablero DDR animado y simulador
 - [x] **Gamificación**: XP por voltaje, niveles, dificultades desbloqueables y Podio (simulado)
 - [ ] **Podio real**: leer el ranking de `usuarios/*/progreso/xp_total` (requiere ajustar las reglas de lectura)
-- [ ] **Fase 2 (hardware)**: firmware del ESP32 leyendo los 4 piezos y publicando pisadas
+- [x] **Fase 2 (hardware)**: firmware del ESP32 leyendo los 4 piezos (modos Nube, Red propia y Misma red)
+- [ ] **Calibrar XP** para los voltajes reales del tapete (~0.2–0.4 V por pisada)
 - [ ] **Fase 3**: historial diario con gráficas de energía generada
 
 ---

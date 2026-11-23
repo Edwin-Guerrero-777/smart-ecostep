@@ -46,7 +46,16 @@
 #include <HTTPClient.h>
 #include "mbedtls/sha1.h"    // WebSocket (modo local)
 #include "mbedtls/base64.h"
-#include "config.h"
+
+// Configuración: usa config.h (tus datos, no se sube a GitHub). Si no
+// existe —p. ej. recién descargado el proyecto— usa config.ejemplo.h,
+// que arranca en MODO_LOCAL 1 (red propia) sin necesitar contraseñas.
+#if __has_include("config.h")
+  #include "config.h"
+#else
+  #include "config.ejemplo.h"
+  #define USANDO_CONFIG_EJEMPLO 1
+#endif
 
 // Pantalla LCD: RS(18a), E(17a), D4(14a), D5(12a), D6(11a), D7(7a)
 LiquidCrystal lcd(23, 22, 21, 19, 18, 4);
@@ -501,6 +510,10 @@ void actualizarLCD(String linea2) {
 
 void setup() {
   Serial.begin(115200);
+#ifdef USANDO_CONFIG_EJEMPLO
+  Serial.println("[CONFIG] Sin config.h: usando config.ejemplo.h (MODO_LOCAL 1, red \"SmartEcoStep\").");
+  Serial.println("[CONFIG] Para Nube o Misma red: copia config.ejemplo.h como config.h y llena tus datos.");
+#endif
   analogReadResolution(12);
   pinMode(PIN_BOTON, INPUT);
   pinMode(PIN_TRIG, OUTPUT);
